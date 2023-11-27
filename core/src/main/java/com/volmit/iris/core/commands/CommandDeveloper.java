@@ -51,13 +51,13 @@ public class CommandDeveloper implements DecreeExecutor {
         Engine engine = IrisToolbelt.access(world).getEngine();
         if(engine != null) {
             long lastUseSize = engine.getMantle().getLastUseMapMemoryUsage();
-            long outputToUnload = engine.getMantle().getToUnload();
 
             Iris.info("-------------------------");
             Iris.info(C.DARK_PURPLE + "Engine Status");
+            Iris.info(C.DARK_PURPLE + "Tectonic Threads: " + C.LIGHT_PURPLE + engine.getMantle().getDynamicThreads());
             Iris.info(C.DARK_PURPLE + "Tectonic Limit: " + C.LIGHT_PURPLE + engine.getMantle().getTectonicLimit());
             Iris.info(C.DARK_PURPLE + "Tectonic Plates: " + C.LIGHT_PURPLE + engine.getMantle().getLoadedRegionCount());
-            Iris.info(C.DARK_PURPLE + "Tectonic ToUnload: " + C.LIGHT_PURPLE + outputToUnload);
+            Iris.info(C.DARK_PURPLE + "Tectonic ToUnload: " + C.LIGHT_PURPLE + engine.getMantle().getToUnload());
             Iris.info(C.DARK_PURPLE + "Tectonic Unload Duration: " + C.LIGHT_PURPLE + Form.duration((long) engine.getMantle().getTectonicDuration()));
             Iris.info(C.DARK_PURPLE + "Cache Size: " + C.LIGHT_PURPLE + Form.f(IrisData.cacheSize()));
             Iris.info(C.DARK_PURPLE + "LastUse Size: " + C.LIGHT_PURPLE + Form.mem(lastUseSize));
@@ -65,6 +65,10 @@ public class CommandDeveloper implements DecreeExecutor {
         } else {
             Iris.info(C.RED + "Engine is null!");
         }
+    }
+    @Decree(description = "Test", origin = DecreeOrigin.BOTH)
+    public void test(){
+        Iris.info("Test Developer CMD Executed");
     }
 }
 

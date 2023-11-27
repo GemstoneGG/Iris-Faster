@@ -37,25 +37,22 @@ import com.volmit.iris.util.function.Consumer4;
 import com.volmit.iris.util.math.M;
 import com.volmit.iris.util.matter.Matter;
 import com.volmit.iris.util.matter.MatterSlice;
-import com.volmit.iris.util.misc.getHardware;
 import com.volmit.iris.util.parallel.BurstExecutor;
 import com.volmit.iris.util.parallel.HyperLock;
 import com.volmit.iris.util.parallel.MultiBurst;
-import com.volmit.iris.util.scheduling.Looper;
 import lombok.Getter;
 import org.bukkit.Chunk;
-import org.checkerframework.checker.units.qual.A;
 
 import java.io.EOFException;
 import java.io.File;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The mantle can store any type of data slice anywhere and manage regions & IO on it's own.
@@ -73,10 +70,6 @@ public class Mantle {
     private final AtomicBoolean closed;
     private final MultiBurst ioBurst;
     private final AtomicBoolean io;
-    private final Object gcMonitor = new Object();
-    long apm = getHardware.getAvailableProcessMemory();
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    int tectonicLimitBeforeOutMemory;
 
     /**
      * Create a new mantle
@@ -397,82 +390,137 @@ public class Mantle {
         return numberOfEntries * bytesPerEntry;
     }
 
+    @Getter
+    private final AtomicInteger fakeToUnload = new AtomicInteger(0);
+    private final AtomicInteger oldFakeToUnload = new AtomicInteger((0));
+    @Getter
+    private final AtomicDouble adjustedIdleDuration = new AtomicDouble(0);
+    public static final AtomicInteger tectonicLimit = new AtomicInteger(30);
+    @Getter
+    private final AtomicInteger dynamicThreads = new AtomicInteger(1);
+    @Getter
+    private final AtomicInteger forceAggressiveThreshold = new AtomicInteger(30);
+    private int g = 0;
+
     /**
      * Save & unload regions that have not been used for more than the
      * specified amount of milliseconds
      *
      * @param baseIdleDuration the duration
      */
-
-    public AtomicInteger FakeToUnload = new AtomicInteger(0);
-     public AtomicDouble adjustedIdleDuration = new AtomicDouble(0);
-     public AtomicInteger tectonicLimit = new AtomicInteger(30);
-
-
     public synchronized void trim(long baseIdleDuration) {
         if (closed.get()) {
             throw new RuntimeException("The Mantle is closed");
         }
+        if (forceAggressiveThreshold.get() <= -1) {
+            forceAggressiveThreshold.set(IrisSettings.get().getPerformance().getAggressiveTectonicThreshold());
+        } else {
+            forceAggressiveThreshold.set(tectonicLimit.get());
+        }
 
-       if (IrisSettings.get().getPerformance().dynamicPerformanceMode){
-            tectonicLimit.set(2);
-            long t = getHardware.getProcessMemory();
-            for (; t > 250;){
-                tectonicLimit.getAndAdd(1);
-                t = t - 250;
+        if(IrisSettings.get().getPerformance().dynamicPerformanceMode) {
+            int h = dynamicThreads.get() - 1;
+            if (fakeToUnload.get() != 0) {
+                if (fakeToUnload.get() > oldFakeToUnload.get()) {
+                    g++;
+                    if (g >= 2 && IrisSettings.getThreadCount(IrisSettings.get().getConcurrency().getParallelism()) > h && IrisSettings.getThreadCount(IrisSettings.get().getConcurrency().getParallelism()) != h) {
+                        dynamicThreads.addAndGet(1);
+                    }
+                } else {
+                    g--;
+                }
+            } else {
+                if (dynamicThreads.get() >= 2) {
+                    dynamicThreads.addAndGet(-1);
+                }
+            }
+            oldFakeToUnload.set(fakeToUnload.get());
+        }
+        if (!IrisSettings.get().getPerformance().dynamicPerformanceMode){
+            if(IrisSettings.get().getPerformance().getTectonicUnloadThreads() <= -1){
+                dynamicThreads.set(1);
+            } else {
+                dynamicThreads.set(IrisSettings.get().getPerformance().getTectonicUnloadThreads());
             }
         }
 
         adjustedIdleDuration.set(baseIdleDuration);
 
-        if (loadedRegions.size() > tectonicLimit.get()) {
-            // todo update this correctly and maybe do something when its above a 100%
-            if (IrisSettings.get().getPerformance().dynamicPerformanceMode) {
-                int tectonicLimitValue = tectonicLimit.get();
-                adjustedIdleDuration.set(Math.max(adjustedIdleDuration.get() - (1000 * (((loadedRegions.size() - tectonicLimitValue) / (double) tectonicLimitValue) * 100) * 0.4), 4000));
+        if (loadedRegions != null) {
+            if (loadedRegions.size() > tectonicLimit.get()) {
+                // todo update this correctly and maybe do something when its above a 100%
+                if (IrisSettings.get().getPerformance().dynamicPerformanceMode) {
+                    int tectonicLimitValue = tectonicLimit.get();
+                    adjustedIdleDuration.set(Math.max(adjustedIdleDuration.get() - (1000 * (((loadedRegions.size() - tectonicLimitValue) / (double) tectonicLimitValue) * 100) * 0.4), 4000));
+                }
             }
         }
 
         io.set(true);
 
         try {
+            final Set<Long> toUnload = new HashSet<>();
             Iris.debug("Trimming Tectonic Plates older than " + Form.duration(adjustedIdleDuration.get(), 0));
-            Set<Long> toUnload = new HashSet<>();
 
             for (Long i : lastUse.keySet()) {
                 double finalAdjustedIdleDuration = adjustedIdleDuration.get();
                 hyperLock.withLong(i, () -> {
                     if (M.ms() - lastUse.get(i) >= finalAdjustedIdleDuration) {
                         toUnload.add(i);
-                        FakeToUnload.addAndGet(1);
+                        fakeToUnload.addAndGet(1);
                         Iris.debug("Tectonic Region added to unload");
                     }
                 });
             }
 
-            BurstExecutor burstExecutor = new BurstExecutor(Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()), toUnload.size());
+            if (IrisSettings.get().getPerformance().AggressiveTectonicUnload && loadedRegions.size() > tectonicLimit.get() && tectonicLimit.get() > forceAggressiveThreshold.get()) {
+                AtomicInteger dummyLoadedRegions = new AtomicInteger(loadedRegions.size());
 
-            for (Long i : toUnload) {
-                burstExecutor.queue(() -> {
-                    hyperLock.withLong(i, () -> {
-                        TectonicPlate m = loadedRegions.get(i);
-                        if (m != null) {
-                            try {
-                                m.write(fileForRegion(dataFolder, i));
-                                loadedRegions.remove(i);
-                                lastUse.remove(i);
-                                Iris.debug("Unloaded Tectonic Plate " + C.DARK_GREEN + Cache.keyX(i) + " " + Cache.keyZ(i));
-                                FakeToUnload.addAndGet(-1);
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                    });
-                });
+                while (dummyLoadedRegions.get() > tectonicLimit.get()) {
+                    try {
+                        long fiveSecondsAgo = M.ms() - 5000;
+                        toUnload.clear();
+
+                        lastUse.entrySet().stream()
+                                .filter(e -> e.getValue() < fiveSecondsAgo)
+                                .max(Comparator.comparingLong(Map.Entry::getValue))
+                                .map(Map.Entry::getKey)
+                                .ifPresent(oldestOverFiveSeconds -> hyperLock.withLong(oldestOverFiveSeconds, () -> {
+                                    if (M.ms() - lastUse.get(oldestOverFiveSeconds) >= adjustedIdleDuration.get()) {
+                                        toUnload.add(oldestOverFiveSeconds);
+                                        fakeToUnload.getAndAdd(1);
+                                        Iris.debug("Oldest Tectonic Region over 5 seconds idle added to unload");
+                                        dummyLoadedRegions.getAndDecrement();
+                                    }
+                                }));
+
+                    } catch (Exception e) {
+
+                    }
+                }
             }
 
-            burstExecutor.complete();
+            BurstExecutor burstExecutor = new BurstExecutor(Executors.newFixedThreadPool(dynamicThreads.get()), toUnload.size());
 
+            for (Long i : toUnload) {
+                   burstExecutor.queue(() -> {
+                hyperLock.withLong(i, () -> {
+                    TectonicPlate m = loadedRegions.get(i);
+                    if (m != null) {
+                        try {
+                            m.write(fileForRegion(dataFolder, i));
+                            loadedRegions.remove(i);
+                            lastUse.remove(i);
+                            fakeToUnload.getAndAdd(-1);
+                            Iris.debug("Unloaded Tectonic Plate " + C.DARK_GREEN + Cache.keyX(i) + " " + Cache.keyZ(i));
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                });
+                 });
+            }
+             burstExecutor.complete();
         } finally {
             io.set(false);
         }
