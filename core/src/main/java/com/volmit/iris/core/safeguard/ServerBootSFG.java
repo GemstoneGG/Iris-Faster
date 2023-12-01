@@ -1,27 +1,26 @@
 package com.volmit.iris.core.safeguard;
 
 import com.volmit.iris.Iris;
-import com.volmit.iris.core.IrisSettings;
 import com.volmit.iris.core.nms.INMS;
 import com.volmit.iris.core.nms.v1X.NMSBinding1X;
-import com.volmit.iris.util.SFG.WorldHandlerSFG;
 import org.bukkit.Bukkit;
-import org.bukkit.World;
 import org.bukkit.plugin.Plugin;
 
-import java.io.File;
 import java.util.*;
 
 import static com.volmit.iris.Iris.instance;
+import static com.volmit.iris.core.safeguard.IrisSafeguard.stablemode;
 import static com.volmit.iris.core.safeguard.IrisSafeguard.unstablemode;
-import static com.volmit.iris.core.tools.IrisToolbelt.access;
 
 public class ServerBootSFG {
     public static final Map<String, Boolean> incompatiblePlugins = new HashMap<>();
     public static boolean unsuportedversion = false;
     protected static boolean safeguardPassed;
     public static boolean passedserversoftware = true;
-    protected static byte count;
+    protected static int count;
+    protected static byte severityLow;
+    protected static byte severityMedium;
+    protected static byte severityHigh;
     public static String allIncompatiblePlugins;
 
     public static void BootCheck() {
@@ -40,7 +39,7 @@ public class ServerBootSFG {
             pluginName = plugin.getName();
             Boolean flag = incompatiblePlugins.get(pluginName);
             if (flag != null && !flag) {
-                count++;
+                severityHigh++;
                 incompatiblePlugins.put(pluginName, true);
             }
         }
@@ -60,52 +59,25 @@ public class ServerBootSFG {
         {
             passedserversoftware = false;
             joiner.add("Server Software");
-            count++;
+            severityHigh++;
         }
         if (INMS.get() instanceof NMSBinding1X) {
             unsuportedversion = true;
             joiner.add("Unsupported Minecraft Version");
-            count++;
+            severityHigh++;
         }
 
         allIncompatiblePlugins = joiner.toString();
 
-        safeguardPassed = (count == 0);
+        safeguardPassed = (severityHigh == 0 && severityMedium == 0 && severityLow == 0);
+        count = severityHigh + severityMedium + severityLow;
+        if(safeguardPassed){
+            stablemode = true;
+            Iris.safeguard("Stable mode has been activated.");
+        }
         if(!safeguardPassed){
             unstablemode = true;
             Iris.safeguard("Unstable mode has been activated.");
         }
-    }
-    public static void CheckIrisWorlds() {
-            StringJoiner joiner = new StringJoiner(", ");
-
-            // Get the main server folder
-            File serverFolder = Bukkit.getWorldContainer();
-
-            // List all files in the server folder
-            File[] listOfFiles = serverFolder.listFiles();
-
-            if (listOfFiles != null) {
-                for (File file : listOfFiles) {
-                    // Check if it is a directory (world folders are directories)
-                    if (file.isDirectory()) {
-                        // Check for an "iris" folder inside the world directory
-                        File irisFolder = new File(file, "iris");
-                        if (irisFolder.exists() && irisFolder.isDirectory()) {
-                            String worldName = file.getName();
-                            joiner.add(worldName);
-
-                            // Check if the world is already loaded
-                            if (Bukkit.getWorld(worldName) == null) {
-                                WorldHandlerSFG.LoadWorld(worldName);
-                            }
-                        }
-                    }
-                }
-            } else {
-                Bukkit.getLogger().warning("No files found in the server folder.");
-            }
-            // No Idea what I should do with this
-            String worldsList = joiner.toString();
     }
 }

@@ -30,7 +30,6 @@ import com.volmit.iris.core.loader.IrisData;
 import com.volmit.iris.core.nms.INMS;
 import com.volmit.iris.core.nms.v1X.NMSBinding1X;
 import com.volmit.iris.core.pregenerator.LazyPregenerator;
-import com.volmit.iris.core.safeguard.ServerBootSFG;
 import com.volmit.iris.core.service.StudioSVC;
 import com.volmit.iris.core.tools.IrisToolbelt;
 import com.volmit.iris.engine.EnginePanic;
@@ -469,13 +468,9 @@ public class Iris extends VolmitPlugin implements Listener {
             J.s(this::setupPapi);
             J.a(ServerConfigurator::configure, 20);
             splash();
-            UtilsSFG.UnstableMode();
-            UtilsSFG.SupportedServerSoftware();
-            UtilsSFG.printIncompatibleWarnings();
-            UtilsSFG.unstablePrompt();
+            UtilsSFG.splash();
 
             autoStartStudio();
-            ServerBootSFG.CheckIrisWorlds();
             checkForBukkitWorlds();
             IrisToolbelt.retainMantleDataForSlice(String.class.getCanonicalName());
             IrisToolbelt.retainMantleDataForSlice(BlockData.class.getCanonicalName());
@@ -775,7 +770,6 @@ public class Iris extends VolmitPlugin implements Listener {
         };
         String[] splash = unstablemode ? splashunstable : splashstable; // Choose the appropriate splash array based on unstablemode
 
-
         OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
         String osArch = osBean.getArch();
         String osName = osBean.getName();
@@ -783,14 +777,30 @@ public class Iris extends VolmitPlugin implements Listener {
         if (!passedserversoftware) {
             Iris.info("Server type & version: " + C.RED + Bukkit.getVersion());
         } else { Iris.info("Server type & version: " + Bukkit.getVersion()); }
-
+        if (!instance.getServer().getVersion().contains("Purpur")) {
+            if (instance.getServer().getVersion().contains("Spigot") && instance.getServer().getVersion().contains("Bukkit")) {
+                 Iris.info(C.RED + " Iris requires paper or above to function properly..");
+            } else {
+                Iris.info(C.YELLOW + "Purpur is recommended to use with iris.");
+            }
+        }
         Iris.info("Server OS: " + osName + " (" + osArch + ")");
 
         if(unstablemode) Iris.info("Server Cpu: " + C.DARK_RED + getCPUModel());
+        try {
+            if (getCPUModel().contains("Intel")) {
+                Iris.info("Server Cpu: " + C.BLUE + getCPUModel());
+            }
+            if (getCPUModel().contains("Ryzen")) {
+                Iris.info("Server Cpu: " + C.RED + getCPUModel());
+            }
+            if (!getCPUModel().contains("Ryzen") && !getCPUModel().contains("Intel")) {
+                Iris.info("Server Cpu: " + C.GRAY + getCPUModel());
+            }
 
-        if(getCPUModel().contains("Intel")) Iris.info("Server Cpu: " + C.BLUE + getCPUModel());
-        if(getCPUModel().contains("Ryzen")) Iris.info("Server Cpu: " + C.RED + getCPUModel());
-        if(!getCPUModel().contains("Intel") && !getCPUModel().contains("Ryzen")) Iris.info("Server Cpu: " + C.DARK_GRAY + getCPUModel());
+        } catch (Exception e){
+            Iris.info("Server Cpu: " + C.DARK_RED + "Failed");
+        }
 
         Iris.info("Process Threads: " + getCPUThreads());
         Iris.info("Process Memory: " + getHardware.getProcessMemory() + " MB");
