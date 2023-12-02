@@ -400,6 +400,11 @@ public class Mantle {
     private final AtomicLong oldestTectonicPlate = new AtomicLong(0);
     @Getter
     private final Set<Long> toUnload = new HashSet<>();
+
+    private static final ThreadPoolExecutor TRIM_EXECUTOR_SERVICE = new ThreadPoolExecutor(1, 1,
+            0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>());
+
     private int g = 0;
 
     /**
@@ -445,6 +450,12 @@ public class Mantle {
             } else {
                 dynamicThreads.set(IrisSettings.get().getPerformance().getTectonicUnloadThreads());
             }
+        }
+
+        int newDynamicThreads = dynamicThreads.get();
+        if (newDynamicThreads != TRIM_EXECUTOR_SERVICE.getMaximumPoolSize()) {
+            TRIM_EXECUTOR_SERVICE.setMaximumPoolSize(newDynamicThreads);
+            TRIM_EXECUTOR_SERVICE.setCorePoolSize(newDynamicThreads);
         }
 
         adjustedIdleDuration.set(baseIdleDuration);
@@ -509,7 +520,7 @@ public class Mantle {
                 }
             }
 
-            BurstExecutor burstExecutor = new BurstExecutor(Executors.newFixedThreadPool(dynamicThreads.get()), toUnload.size());
+            BurstExecutor burstExecutor = new BurstExecutor(TRIM_EXECUTOR_SERVICE, toUnload.size());
             for (Long i : toUnload.toArray(Long[]::new)) {
                 burstExecutor.queue(() -> {
                     hyperLock.withLong(i, () -> {
