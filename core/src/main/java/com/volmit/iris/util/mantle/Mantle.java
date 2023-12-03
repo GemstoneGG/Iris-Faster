@@ -423,7 +423,6 @@ public class Mantle {
             forceAggressiveThreshold.set(IrisSettings.get().getPerformance().getAggressiveTectonicThreshold());
         }
 
-        if(IrisSettings.get().getPerformance().dynamicPerformanceMode) {
             // todo Repixel improve the logic
             int h = dynamicThreads.get() - 1;
             if (toUnload.size() != 0) {
@@ -443,14 +442,12 @@ public class Mantle {
                 }
             }
             oldFakeToUnload.set(toUnload.size());
-        }
-        if (!IrisSettings.get().getPerformance().dynamicPerformanceMode){
+
             if(IrisSettings.get().getPerformance().getTectonicUnloadThreads() <= -1){
                 dynamicThreads.set(1);
             } else {
                 dynamicThreads.set(IrisSettings.get().getPerformance().getTectonicUnloadThreads());
             }
-        }
 
         int newDynamicThreads = dynamicThreads.get();
         if (newDynamicThreads != TRIM_EXECUTOR_SERVICE.getMaximumPoolSize()) {
@@ -463,10 +460,8 @@ public class Mantle {
         if (loadedRegions != null) {
             if (loadedRegions.size() > tectonicLimit.get()) {
                 // todo update this correctly and maybe do something when its above a 100%
-                if (IrisSettings.get().getPerformance().dynamicPerformanceMode) {
                     int tectonicLimitValue = tectonicLimit.get();
                     adjustedIdleDuration.set(Math.max(adjustedIdleDuration.get() - (1000 * (((loadedRegions.size() - tectonicLimitValue) / (double) tectonicLimitValue) * 100) * 0.4), 4000));
-                }
             }
         }
 
