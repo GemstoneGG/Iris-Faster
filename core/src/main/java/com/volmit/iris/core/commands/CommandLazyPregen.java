@@ -35,8 +35,9 @@ import org.bukkit.util.Vector;
 
 import java.io.File;
 
-@Decree(name = "pregen", aliases = "pregenerate", description = "Pregenerate your Iris worlds!")
-public class CommandPregen implements DecreeExecutor {
+@Decree(name = "lazypregen", aliases = "lazy", description = "Pregenerate your Iris worlds!")
+public class CommandLazyPregen implements DecreeExecutor {
+    public String worldName;
     @Decree(description = "Pregenerate a world")
     public void start(
             @Param(description = "The radius of the pregen in blocks", aliases = "size")
@@ -44,22 +45,36 @@ public class CommandPregen implements DecreeExecutor {
             @Param(description = "The world to pregen", contextual = true)
             World world,
             @Param(aliases = "middle", description = "The center location of the pregen. Use \"me\" for your current location", defaultValue = "0,0")
-            Vector center
+            Vector center,
+            @Param(aliases = "maxcpm", description = "Limit the chunks per minute the pregen will generate", defaultValue = "999999999")
+            int cpm,
+            @Param(aliases = "silent", description = "Silent generation", defaultValue = "false")
+            boolean silent
             ) {
+
+        worldName = world.getName();
         try {
             if (sender().isPlayer() && access() == null) {
                 sender().sendMessage(C.RED + "The engine access for this world is null!");
                 sender().sendMessage(C.RED + "Please make sure the world is loaded & the engine is initialized. Generate a new chunk, for example.");
             }
-            radius = Math.max(radius, 1024);
-            int w = (radius >> 9 + 1) * 2;
-            IrisToolbelt.pregenerate(PregenTask
-                    .builder()
-                    .center(new Position2(center.getBlockX() >> 9, center.getBlockZ() >> 9))
-                    .width(w)
-                    .height(w)
-                    .build(), world);
-            String msg = C.GREEN + "Pregen started in " + C.GOLD + world.getName() + C.GREEN + " of " + C.GOLD + (radius * 2) + C.GREEN + " by " + C.GOLD + (radius * 2) + C.GREEN + " blocks from " + C.GOLD + center.getX() + "," + center.getZ();
+
+            LazyPregenerator.LazyPregenJob pregenJob = LazyPregenerator.LazyPregenJob.builder()
+                    .world(worldName)
+                    .healingPosition(0)
+                    .healing(false)
+                    .chunksPerMinute(cpm)
+                    .radiusBlocks(radius)
+                    .position(0)
+                    .silent(silent)
+                    .build();
+
+            File worldDirectory = new File(Bukkit.getWorldContainer(), worldName);
+            File lazyGenFile = new File(worldDirectory, "lazygen.json");
+            LazyPregenerator pregenerator = new LazyPregenerator(pregenJob, lazyGenFile);
+            pregenerator.start();
+
+            String msg = C.GREEN + "LazyPregen started in " + C.GOLD + worldName + C.GREEN + " of " + C.GOLD + (radius * 2) + C.GREEN + " by " + C.GOLD + (radius * 2) + C.GREEN + " blocks from " + C.GOLD + center.getX() + "," + center.getZ();
             sender().sendMessage(msg);
             Iris.info(msg);
         } catch (Throwable e) {
@@ -71,8 +86,9 @@ public class CommandPregen implements DecreeExecutor {
 
     @Decree(description = "Stop the active pregeneration task", aliases = "x")
     public void stop() {
-        if (PregeneratorJob.shutdownInstance()) {
-            Iris.info( C.BLUE + "Finishing up mca region...");
+        if (LazyPregenerator.getInstance() != null) {
+            LazyPregenerator.getInstance().shutdownInstance();
+            Iris.info( C.BLUE + "Shutting down all Lazy Pregens");
         } else {
             sender().sendMessage(C.YELLOW + "No active pregeneration tasks to stop");
         }
@@ -80,10 +96,12 @@ public class CommandPregen implements DecreeExecutor {
 
     @Decree(description = "Pause / continue the active pregeneration task", aliases = {"t", "resume", "unpause"})
     public void pause() {
-        if (PregeneratorJob.pauseResume()) {
-            sender().sendMessage(C.GREEN + "Paused/unpaused pregeneration task, now: " + (PregeneratorJob.isPaused() ? "Paused" : "Running") + ".");
+        if (LazyPregenerator.getInstance() != null) {
+            LazyPregenerator.getInstance().setPausedLazy();
+            sender().sendMessage(C.GREEN + "Paused/unpaused Lazy Pregen, now: " + (LazyPregenerator.getInstance().isPausedLazy() ? "Paused" : "Running") + ".");
         } else {
-            sender().sendMessage(C.YELLOW + "No active pregeneration tasks to pause/unpause.");
+            sender().sendMessage(C.YELLOW + "No active Lazy Pregen tasks to pause/unpause.");
+
         }
     }
 }
